@@ -1,3 +1,4 @@
+pub mod automation;
 pub mod compare;
 pub mod error;
 pub mod forge;
