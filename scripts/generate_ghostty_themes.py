@@ -12,6 +12,7 @@ MODE_DARK_TOKENS = {"dark", "night", "moon", "frappe", "mocha", "macchiato"}
 MODE_LIGHT_TOKENS = {"light", "day", "dawn", "latte"}
 STRIP_TOKENS = MODE_DARK_TOKENS | MODE_LIGHT_TOKENS
 DEFAULT_ZON_URL = "https://raw.githubusercontent.com/ghostty-org/ghostty/main/build.zig.zon"
+ALABASTER_SOURCE_URL = "https://github.com/tonsky/sublime-scheme-alabaster"
 
 
 def fetch_bytes(url: str) -> bytes:
@@ -54,6 +55,70 @@ def mix(a: tuple[int, int, int], b: tuple[int, int, int], t: float) -> tuple[flo
 def rel_lum(rgb: tuple[int, int, int]) -> float:
     r, g, b = rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def source_theme(
+    name: str,
+    background: str,
+    foreground: str,
+    accent: str,
+    palette: list[str],
+    selection_background: str,
+    syntax: dict[str, str],
+) -> dict:
+    background_rgb = hex_to_rgb(background)
+    return {
+        "name": name,
+        "background": background_rgb,
+        "foreground": hex_to_rgb(foreground),
+        "accent": hex_to_rgb(accent),
+        "palette": [hex_to_rgb(color) for color in palette],
+        "selection_background": hex_to_rgb(selection_background),
+        "lum": rel_lum(background_rgb),
+        "is_dark": rel_lum(background_rgb) < 0.5,
+        "syntax": {key: hex_to_rgb(color) for key, color in syntax.items()},
+    }
+
+
+def alabaster_supplemental_themes() -> list[dict]:
+    light_palette = [
+        "#000000", "#AA3731", "#448C27", "#CB9000",
+        "#325CC0", "#7A3E9D", "#0083B2", "#BBBBBB",
+        "#777777", "#F05050", "#60CB00", "#FFBC5D",
+        "#007ACC", "#E64CE6", "#00AACB", "#FFFFFF",
+    ]
+    dark_palette = [
+        "#0E1415", "#CC3333", "#95CB82", "#CD974B",
+        "#71ADE7", "#CC8BC9", "#708B8D", "#CECECE",
+        "#708B8D", "#F05050", "#95CB82", "#CD974B",
+        "#71ADE7", "#CC8BC9", "#708B8D", "#EEEEEE",
+    ]
+    return [
+        source_theme(
+            "Alabaster Dark", "#0E1415", "#CECECE", "#CD974B", dark_palette, "#293334",
+            {
+                "keyword": "#CECECE", "string": "#95CB82", "comment": "#DFDF8E",
+                "function": "#71ADE7", "type": "#71ADE7", "number": "#CC8BC9",
+                "property": "#CECECE", "operator": "#708B8D",
+            },
+        ),
+        source_theme(
+            "Alabaster Mono", "#FFFFFF", "#000000", "#16BDEC", light_palette, "#B3D7FF",
+            {
+                "keyword": "#000000", "string": "#000000", "comment": "#999999",
+                "function": "#000000", "type": "#000000", "number": "#000000",
+                "property": "#000000", "operator": "#000000",
+            },
+        ),
+        source_theme(
+            "Alabaster Dark Mono", "#111111", "#999999", "#CD974B", dark_palette, "#313131",
+            {
+                "keyword": "#999999", "string": "#999999", "comment": "#777777",
+                "function": "#999999", "type": "#999999", "number": "#999999",
+                "property": "#999999", "operator": "#555555",
+            },
+        ),
+    ]
 
 
 def tokenize(name: str) -> list[str]:
@@ -106,8 +171,8 @@ def semantic_from(theme: dict) -> dict:
     foreground = theme["foreground"]
     is_dark = theme["is_dark"]
 
-    accent = palette[4]
-    accent_strong = palette[12]
+    accent = theme.get("accent", palette[4])
+    accent_strong = theme.get("accent", palette[12])
     success_text = palette[10] if is_dark else palette[2]
     danger_text = palette[9] if is_dark else palette[1]
     warning_text = palette[11] if is_dark else palette[3]
@@ -139,6 +204,15 @@ def semantic_from(theme: dict) -> dict:
     syn_number = palette[11] if bright else palette[3]    # yellow
     syn_property = palette[9] if bright else palette[1]   # red
     syn_operator = text_muted
+    syntax = theme.get("syntax", {})
+    syn_keyword = syntax.get("keyword", syn_keyword)
+    syn_string = syntax.get("string", syn_string)
+    syn_comment = syntax.get("comment", syn_comment)
+    syn_function = syntax.get("function", syn_function)
+    syn_type = syntax.get("type", syn_type)
+    syn_number = syntax.get("number", syn_number)
+    syn_property = syntax.get("property", syn_property)
+    syn_operator = syntax.get("operator", syn_operator)
 
     accent_soft = mix(background, accent, 0.26 if is_dark else 0.20)
 
@@ -252,7 +326,9 @@ def parse_theme_archive(archive_bytes: bytes) -> list[dict]:
     return themes
 
 
-def generate_payload(archive_url: str, zon_url: str, themes: list[dict]) -> dict:
+def generate_payload(
+    archive_url: str, zon_url: str, themes: list[dict], upstream_theme_count: int
+) -> dict:
     grouped: dict[str, list[dict]] = {}
     for theme in themes:
         grouped.setdefault(canonical_base(theme["name"]), []).append(theme)
@@ -277,8 +353,9 @@ def generate_payload(archive_url: str, zon_url: str, themes: list[dict]) -> dict
             "source": "ghostty-org/ghostty (iterm2_themes dependency)",
             "buildZigZonUrl": zon_url,
             "archiveUrl": archive_url,
+            "supplementalSource": ALABASTER_SOURCE_URL,
             "generatedAt": datetime.now(timezone.utc).isoformat(),
-            "themeFileCount": len(themes),
+            "themeFileCount": upstream_theme_count,
             "baseThemeCount": len(entries),
         },
         "themes": entries,
@@ -299,7 +376,13 @@ def main() -> int:
 
     archive_bytes = fetch_bytes(archive_url)
     themes = parse_theme_archive(archive_bytes)
-    payload = generate_payload(archive_url, args.zon_url, themes)
+    upstream_theme_count = len(themes)
+    existing_names = {theme["name"] for theme in themes}
+    themes.extend(
+        theme for theme in alabaster_supplemental_themes()
+        if theme["name"] not in existing_names
+    )
+    payload = generate_payload(archive_url, args.zon_url, themes, upstream_theme_count)
 
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)

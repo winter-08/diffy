@@ -1,3 +1,4 @@
 [submodule "crates/difftastic"]
 	path = crates/difftastic
 	url = https://github.com/seatedro/difftastic.git
+	shallow = true
