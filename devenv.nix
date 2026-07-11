@@ -5,6 +5,7 @@
     pkgs.rustc
     pkgs.rustfmt
     pkgs.clippy
+    pkgs.dioxus-cli
     pkgs.pkg-config
     pkgs.uv
     pkgs.git

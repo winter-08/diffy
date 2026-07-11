@@ -219,6 +219,7 @@
               pkgs.rustc
               pkgs.rustfmt
               pkgs.clippy
+              pkgs.dioxus-cli
               pkgs.nodejs_22
               pkgs.uv
               pkgs.git
